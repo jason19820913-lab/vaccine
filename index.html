@@ -33,6 +33,10 @@ button{font:inherit;font-size:16px;font-weight:700;padding:11px 18px;border:none
 .vrow .cur{font-size:13px;color:var(--muted);text-align:center}
 .vrow .cur b{display:block;font-size:20px;color:var(--teal-d)}
 .vrow input{text-align:center;font-size:18px;font-weight:700}
+.vrow .cur b.txt{font-size:15px;color:#8a6d00}
+.qcell{display:flex;flex-direction:column;gap:4px;align-items:stretch}
+.chip{background:#fff3c4;color:#6b5400;font-size:12px;font-weight:600;padding:4px 8px;border-radius:999px;border:1px solid #f1dc7a}
+.chip:active{background:#f9e66b}
 .hd{display:grid;grid-template-columns:1fr 110px 110px;gap:10px;font-size:12px;color:var(--muted);text-align:center;padding-bottom:4px}
 .hd span:first-child{text-align:left}
 .meta{font-size:12px;color:var(--muted);margin-top:8px}
@@ -79,7 +83,7 @@ h2{font-size:16px;color:var(--teal-d);margin:0 0 10px}
     <input id="note" maxlength="60" placeholder="留空也可以">
     <div class="err" id="formErr"></div>
     <button class="btn-p" id="saveBtn" onclick="doSave()">送出更新</button>
-    <div class="meta">只需填要更動的欄位，留空代表不變；每次更動都會記錄到「異動紀錄」。</div>
+    <div class="meta">只需填要更動的欄位，留空代表不變；可填數字或文字（如「不提供」），每次更動都會記錄到「異動紀錄」。</div>
   </div>
 
   <!-- 紀錄 -->
@@ -158,23 +162,27 @@ function renderForm() {
   var html = '';
   S.stock.vaccines.forEach(function (v, i) {
     var cur = c && c.qty[i] != null ? c.qty[i] : null;
+    var isTxt = typeof cur === 'string';
     html += '<div class="vrow">' + vtag(v) +
-      '<div class="cur"><b>' + (cur == null ? '—' : cur) + '</b>' + (cur == null ? '未回報' : '劑') + '</div>' +
-      '<input type="number" min="0" step="1" inputmode="numeric" id="q' + i + '" placeholder="不變"></div>';
+      '<div class="cur"><b' + (isTxt ? ' class="txt"' : '') + '>' + (cur == null ? '—' : esc(cur)) + '</b>' + (cur == null ? '未回報' : (isTxt ? '' : '劑')) + '</div>' +
+      '<div class="qcell"><input type="text" id="q' + i + '" placeholder="不變" maxlength="10" autocomplete="off">' +
+      '<button type="button" class="chip" onclick="setQ(' + i + ',\'不提供\')">不提供</button></div></div>';
   });
   document.getElementById('rows').innerHTML = html;
   document.getElementById('clinicMeta').textContent = c && c.updatedAt ? '上次更新：' + c.updatedAt + (c.updatedBy ? '（' + c.updatedBy + '）' : '') : '尚未有填報紀錄';
   document.getElementById('note').value = '';
   document.getElementById('formErr').textContent = '';
 }
+function setQ(i, val) { var el = document.getElementById('q' + i); el.value = (el.value === val) ? '' : val; }
 function doSave() {
   if (!S.stock) return;
   var clinic = document.getElementById('clinic').value, qty = [], any = false;
   for (var i = 0; i < S.stock.vaccines.length; i++) {
     var v = document.getElementById('q' + i).value.trim();
     if (v === '') { qty.push(null); continue; }
-    if (!/^\d+$/.test(v)) { document.getElementById('formErr').textContent = S.stock.vaccines[i] + ' 請輸入 0 以上的整數'; return; }
-    qty.push(Number(v)); any = true;
+    if (/^\d+$/.test(v)) { qty.push(Number(v)); any = true; continue; }
+    if (/^\d/.test(v) || v.length > 10) { document.getElementById('formErr').textContent = S.stock.vaccines[i] + ' 請輸入數字，或 10 字以內的文字（例如：不提供）'; return; }
+    qty.push(v); any = true;
   }
   var note = document.getElementById('note').value.trim();
   if (!any && !note) { document.getElementById('formErr').textContent = '沒有任何更動'; return; }
