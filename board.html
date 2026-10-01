@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>金鶯診所 各院區疫苗即時庫存</title>
+<meta name="description" content="金鶯診所各院區自費／公費流感疫苗即時庫存，免預約隨到隨打，前往前請先致電院區確認。">
+<style>
+  /* ===== 頁面外框（看板本體樣式在下方 <script> 的 CSS 變數裡）===== */
+  html,body{margin:0;background:#F4F8F8;font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;color:#163B3C}
+  .page{max-width:1140px;margin:0 auto;padding:16px 16px 40px}
+  .page-head{display:flex;align-items:center;gap:10px;padding:6px 2px 10px}
+  .page-head .logo{width:40px;height:40px;border-radius:50%;background:#2EA3A3;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px}
+  .page-head h1{font-size:18px;margin:0;color:#19777A}
+  .page-head small{display:block;font-size:12px;color:#5E7F80;font-weight:400}
+  #jy-vaccine-board{margin:0}
+  .loading{text-align:center;color:#5E7F80;padding:60px 0;font-size:14px}
+  .page-foot{text-align:center;font-size:12px;color:#5E7F80;margin-top:14px}
+  .page-foot a{color:#19777A}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="page-head"><div class="logo">Elite</div><h1>各院區疫苗即時庫存<small>金鶯診所</small></h1></div>
+  <div id="jy-vaccine-board"><div class="loading">載入中…</div></div>
+  <div class="page-foot">庫存由各院區人員回報，前往前請先致電院區確認　｜　<a href="https://www.drking.com.tw/info_all.html">院區資訊與電話</a></div>
+</div>
+
+<script>
+/* ===== 設定：改這裡就好 ===== */
+window.JY_VAX = {
+  api: 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec',
+  low: 10,          // 少量門檻（劑）：>= low 充足、1~low-1 少量、0 缺貨
+  refresh: 60000    // 自動刷新間隔（毫秒）
+  // tel: { '鶯歌院區': '02-2678-xxxx' }   // 選填：卡片右下角顯示電話
+};
+</script>
+<script>
+/* ============================================================
+ * 金鶯診所 — 各院區疫苗即時庫存看板（官網嵌入版）
+ * 用法（二擇一）：
+ *   A. 官網後台「最新消息」或任一頁面內容放一個容器：<div id="jy-vaccine-board"></div>
+ *      再把本檔用 GTM 自訂 HTML 代碼注入，觸發條件為該頁網址。
+ *   B. GTM 代碼內設定 JY_VAX.mount = 'CSS 選擇器'，會自動 insert 到該元素之後。
+ * 資料來源：Apps Script ?action=stock（JSONP，callback 參數），約每 60 秒自動刷新。
+ * ============================================================ */
+(function () {
+  var CFG = window.JY_VAX || {};
+  var API = CFG.api || 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec';
+  var MOUNT_ID = 'jy-vaccine-board';
+  var REFRESH = CFG.refresh || 60000;
+  var LOW = CFG.low || 10;               // 少量門檻（劑）
+  var TEL = CFG.tel || {};                // {院區名: '03-xxxxxxx'} 可選
+
+  var CSS = '' +
+'#jy-vaccine-board{--jv-teal:#2EA3A3;--jv-teal-d:#19777A;--jv-teal-l:#E4F5F5;--jv-wave:#CDEDED;--jv-yellow:#F7E35B;--jv-ink:#163B3C;--jv-mute:#5E7F80;--jv-ok:#2E9E6B;--jv-low:#E09A1B;--jv-out:#D4514B;--jv-card:#ffffff;' +
+'font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;color:var(--jv-ink);box-sizing:border-box;position:relative;overflow:hidden;border-radius:22px;background:linear-gradient(170deg,#F1FAFA 0%,#DDF2F2 55%,#CFEBEB 100%);padding:28px 18px 22px;margin:16px 0;line-height:1.45}' +
+'#jy-vaccine-board *{box-sizing:border-box}' +
+'#jy-vaccine-board .jv-wave{position:absolute;left:0;right:0;height:120px;pointer-events:none;opacity:.55}' +
+'#jy-vaccine-board .jv-wave.t{top:-30px}#jy-vaccine-board .jv-wave.b{bottom:-40px;transform:scaleX(-1)}' +
+'#jy-vaccine-board .jv-leaf{position:absolute;width:140px;opacity:.35;pointer-events:none}' +
+'#jy-vaccine-board .jv-leaf.l{left:-30px;bottom:10px}#jy-vaccine-board .jv-leaf.r{right:-30px;top:40px;transform:scaleX(-1)}' +
+'#jy-vaccine-board .jv-in{position:relative;z-index:1;max-width:1100px;margin:0 auto}' +
+'#jy-vaccine-board .jv-head{text-align:center;margin-bottom:18px}' +
+'#jy-vaccine-board .jv-kick{display:inline-block;background:var(--jv-teal-d);color:#fff;font-weight:800;font-size:13px;letter-spacing:.18em;padding:4px 14px;border-radius:999px}' +
+'#jy-vaccine-board h2.jv-title{margin:10px 0 4px;font-size:clamp(26px,4.6vw,40px);font-weight:900;line-height:1.15;color:var(--jv-teal-d);text-shadow:0 2px 0 #fff,0 0 0 #fff;letter-spacing:.02em}' +
+'#jy-vaccine-board h2.jv-title em{font-style:normal;color:#fff;background:var(--jv-teal);padding:0 .3em;border-radius:12px;box-shadow:0 4px 0 var(--jv-teal-d)}' +
+'#jy-vaccine-board h2.jv-title b{color:#4E4A00;background:var(--jv-yellow);padding:0 .3em;border-radius:12px;box-shadow:0 4px 0 #D9C43A}' +
+'#jy-vaccine-board .jv-sub{display:inline-block;margin-top:10px;background:#fff;border:2px solid var(--jv-teal);color:var(--jv-teal-d);font-weight:700;padding:6px 16px;border-radius:999px;font-size:14px}' +
+'#jy-vaccine-board .jv-legend{display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center;font-size:13px;color:var(--jv-mute);margin:14px 0 6px}' +
+'#jy-vaccine-board .jv-legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}' +
+'#jy-vaccine-board .jv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:12px}' +
+'#jy-vaccine-board .jv-card{background:var(--jv-card);border:2px solid var(--jv-teal);border-radius:18px;padding:12px 14px 10px;box-shadow:0 6px 0 rgba(25,119,122,.18);min-width:0}' +
+'#jy-vaccine-board .jv-cname{display:flex;align-items:center;gap:8px;font-weight:900;font-size:18px;color:var(--jv-teal-d);margin-bottom:8px}' +
+'#jy-vaccine-board .jv-cname .jv-dot{width:28px;height:28px;border-radius:50%;background:var(--jv-teal);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex:none}' +
+'#jy-vaccine-board .jv-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px dashed var(--jv-wave)}' +
+'#jy-vaccine-board .jv-row:first-of-type{border-top:none}' +
+'#jy-vaccine-board .jv-vac{font-size:13px;min-width:0}' +
+'#jy-vaccine-board .jv-vac .jv-tag{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;margin-right:4px;vertical-align:1px;background:var(--jv-yellow);color:#4E4A00}' +
+'#jy-vaccine-board .jv-vac .jv-tag.pub{background:#D8EBFF;color:#1A4F82}' +
+'#jy-vaccine-board .jv-qty{display:inline-flex;align-items:baseline;gap:2px;font-weight:900;font-size:22px;font-variant-numeric:tabular-nums;white-space:nowrap}' +
+'#jy-vaccine-board .jv-qty small{font-size:11px;font-weight:600;color:var(--jv-mute)}' +
+'#jy-vaccine-board .jv-qty.ok{color:var(--jv-ok)}#jy-vaccine-board .jv-qty.low{color:var(--jv-low)}#jy-vaccine-board .jv-qty.out{color:var(--jv-out)}#jy-vaccine-board .jv-qty.na{color:#9bb;font-size:14px;font-weight:600}' +
+'#jy-vaccine-board .jv-pill{font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;color:#fff;white-space:nowrap}' +
+'#jy-vaccine-board .jv-pill.ok{background:var(--jv-ok)}#jy-vaccine-board .jv-pill.low{background:var(--jv-low)}#jy-vaccine-board .jv-pill.out{background:var(--jv-out)}#jy-vaccine-board .jv-pill.na{background:#B9CFCF}' +
+'#jy-vaccine-board .jv-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--jv-mute)}' +
+'#jy-vaccine-board .jv-meta a{color:var(--jv-teal-d);font-weight:700;text-decoration:none}' +
+'#jy-vaccine-board .jv-foot{text-align:center;font-size:12px;color:var(--jv-mute);margin-top:16px}' +
+'#jy-vaccine-board .jv-foot b{color:var(--jv-teal-d)}' +
+'#jy-vaccine-board .jv-live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--jv-ok);margin-right:5px;animation:jv-blink 1.6s infinite}' +
+'@keyframes jv-blink{50%{opacity:.25}}' +
+'@media (prefers-reduced-motion:reduce){#jy-vaccine-board .jv-live{animation:none}}' +
+'@media (max-width:520px){#jy-vaccine-board{padding:22px 12px 18px;border-radius:16px}#jy-vaccine-board .jv-grid{grid-template-columns:1fr 1fr;gap:8px}#jy-vaccine-board .jv-card{padding:10px 10px 8px;border-radius:14px}#jy-vaccine-board .jv-cname{font-size:15px}#jy-vaccine-board .jv-cname .jv-dot{width:22px;height:22px;font-size:11px}#jy-vaccine-board .jv-qty{font-size:19px}#jy-vaccine-board .jv-vac{font-size:12px}#jy-vaccine-board .jv-row{flex-wrap:wrap;gap:2px 6px}#jy-vaccine-board .jv-pill{display:none}#jy-vaccine-board .jv-leaf{display:none}}' +
+'@media (max-width:360px){#jy-vaccine-board .jv-grid{grid-template-columns:1fr}}';
+
+  var WAVE = '<svg class="jv-wave t" viewBox="0 0 1200 120" preserveAspectRatio="none"><path d="M0,60 C200,120 400,0 600,60 C800,120 1000,0 1200,60 L1200,0 L0,0 Z" fill="#fff"/><path d="M0,80 C200,140 400,20 600,80 C800,140 1000,20 1200,80 L1200,0 L0,0 Z" fill="#B9E2E2" opacity=".5"/></svg>';
+  var WAVE_B = WAVE.replace('jv-wave t', 'jv-wave b');
+  var LEAF = '<svg class="jv-leaf l" viewBox="0 0 140 140"><g fill="#2EA3A3"><path d="M20 120 C20 60 60 30 120 20 C110 80 80 115 20 120Z"/><path d="M25 118 L110 28" stroke="#fff" stroke-width="3" fill="none"/></g></svg>';
+  var LEAF_R = LEAF.replace('jv-leaf l', 'jv-leaf r');
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function splitVac(label) {
+    var m = String(label).match(/^(自費|公費疫苗|公費)[-－]?\s*(.*)$/);
+    if (!m) return { pub: false, tag: '', name: label };
+    var pub = m[1].indexOf('公費') === 0;
+    return { pub: pub, tag: pub ? '公費' : '自費', name: m[2] || (pub ? '不分廠牌' : '') };
+  }
+  function state(q) { if (q == null) return 'na'; if (q <= 0) return 'out'; if (q < LOW) return 'low'; return 'ok'; }
+  var LABEL = { ok: '充足', low: '少量', out: '缺貨', na: '未回報' };
+
+  function ensureMount() {
+    var el = document.getElementById(MOUNT_ID);
+    if (el) return el;
+    el = document.createElement('div'); el.id = MOUNT_ID;
+    var anchor = CFG.mount ? document.querySelector(CFG.mount) : null;
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor.nextSibling);
+    else document.body.appendChild(el);
+    return el;
+  }
+
+  function render(d) {
+    var el = ensureMount();
+    var vacs = (d.vaccines || []).map(splitVac);
+    var cards = (d.clinics || []).map(function (c) {
+      var rows = vacs.map(function (v, i) {
+        var q = c.qty[i], st = state(q);
+        return '<div class="jv-row"><div class="jv-vac"><span class="jv-tag' + (v.pub ? ' pub' : '') + '">' + v.tag + '</span>' + esc(v.name) + '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px"><span class="jv-qty ' + st + '">' + (q == null ? '—' : esc(q) + '<small>劑</small>') + '</span><span class="jv-pill ' + st + '">' + LABEL[st] + '</span></div></div>';
+      }).join('');
+      var tel = TEL[c.name] ? '<a href="tel:' + esc(TEL[c.name]) + '">☎ ' + esc(TEL[c.name]) + '</a>' : '';
+      var short = c.name.replace(/院區$/, '');
+      return '<div class="jv-card"><div class="jv-cname"><span class="jv-dot">' + esc(short.slice(0, 1)) + '</span>' + esc(c.name) + '</div>' + rows +
+        '<div class="jv-meta"><span>' + (c.updatedAt ? '更新 ' + esc(c.updatedAt) : '尚未回報') + '</span>' + tel + '</div></div>';
+    }).join('');
+
+    el.innerHTML = '<style>' + CSS + '</style>' + WAVE + WAVE_B + LEAF + LEAF_R +
+      '<div class="jv-in"><div class="jv-head">' +
+      '<span class="jv-kick">各院區即時庫存</span>' +
+      '<h2 class="jv-title"><em>自費</em>／<b>公費</b> 流感疫苗</h2>' +
+      '<div class="jv-sub">免預約，隨到隨打</div>' +
+      '<div class="jv-legend"><span><i style="background:var(--jv-ok)"></i>充足 ' + LOW + ' 劑以上</span><span><i style="background:var(--jv-low)"></i>少量 1–' + (LOW - 1) + ' 劑</span><span><i style="background:var(--jv-out)"></i>缺貨</span><span><i style="background:#B9CFCF"></i>未回報</span></div>' +
+      '</div><div class="jv-grid">' + cards + '</div>' +
+      '<div class="jv-foot"><span class="jv-live"></span>數量由各院區人員回報，最後更新 <b>' + esc(d.latestUpdate || '—') + '</b>・庫存變動快速，前往前請先致電院區確認是否有存量</div></div>';
+  }
+
+  function load() {
+    var cb = 'jyVax' + Date.now();
+    window[cb] = function (d) { try { if (d && !d.error) render(d); } finally { delete window[cb]; s.parentNode && s.parentNode.removeChild(s); } };
+    var s = document.createElement('script');
+    s.src = API + '?action=stock&callback=' + cb + '&_=' + Date.now();
+    s.onerror = function () { delete window[cb]; };
+    document.head.appendChild(s);
+  }
+
+  if (CFG.data) { render(CFG.data); return; }        // 預覽／靜態資料
+  function boot() { load(); setInterval(load, REFRESH); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+
+</script>
+</body>
+</html>
