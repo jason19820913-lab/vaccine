@@ -29,6 +29,8 @@
 <script>
 /* ===== 設定：改這裡就好 ===== */
 window.JY_VAX = {
+  // logo: 'logo.png',   // 預設用官網 logo 圖；若上傳 logo 到同資料夾可改這裡
+  mobileLimit: 6,     // 手機版預設展開幾個院區，其餘收合
   api: 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec',
   low: 10,          // 少量門檻（劑）：>= low 充足、1~low-1 少量、0 缺貨
   poll: 15000,      // 每幾毫秒檢查一次版本號（有異動約 15 秒內更新）
@@ -38,76 +40,122 @@ window.JY_VAX = {
 </script>
 <script>
 /* ============================================================
- * 金鶯診所 — 各院區疫苗即時庫存看板（官網嵌入版）
- * 用法（二擇一）：
- *   A. 官網後台「最新消息」或任一頁面內容放一個容器：<div id="jy-vaccine-board"></div>
- *      再把本檔用 GTM 自訂 HTML 代碼注入，觸發條件為該頁網址。
- *   B. GTM 代碼內設定 JY_VAX.mount = 'CSS 選擇器'，會自動 insert 到該元素之後。
- * 資料來源：Apps Script ?action=stock（JSONP）。每 15 秒查 ?action=version，版本號變了才重抓整份；切回分頁也立即檢查。
+ * 金鶯診所 — 各院區疫苗即時庫存看板 v2（官網嵌入／獨立頁共用）
+ * 設定：window.JY_VAX = { api, logo, low, poll, refresh, mount, tel, mobileLimit }
+ *   - 容器 <div id="jy-vaccine-board"></div>；沒有時插在 JY_VAX.mount 選擇器之後
+ *   - 資料：?action=stock（JSONP）；每 poll 毫秒查 ?action=version，版本變了才重抓
+ *   - 定位：「依我的位置排序」→ 依距離排序、顯示距離與「最近」；同裝置記住（localStorage geo_last，與官網其他功能共用）
+ *   - RWD：手機預設只展開前 mobileLimit 個院區，其餘收合；縣市篩選；電話只剩 icon
  * ============================================================ */
 (function () {
+  if (window.__jyVaxBoard) return; window.__jyVaxBoard = true;
   var CFG = window.JY_VAX || {};
   var API = CFG.api || 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec';
+  var LOGO = CFG.logo === undefined ? 'https://www.drking.com.tw/uploads/use/20250731111412d249.jpg' : CFG.logo;
   var MOUNT_ID = 'jy-vaccine-board';
-  var REFRESH = CFG.refresh || 300000;     // 保底整份重抓（毫秒）
-  var POLL    = CFG.poll    || 15000;      // 版本號偵測間隔（毫秒）：有異動約 15 秒內更新
-  var CUR_V   = null, LAST = null;
-  var LOW = CFG.low || 10;               // 少量門檻（劑）
-  var TEL_DEFAULT = { '鶯歌院區':'02-26702559','三樹院區':'02-26807101','樹林院區':'02-86850096','桃園院區':'03-3668311','土城院區':'02-22625113',
-    '八德院區':'03-3655225','龍潭院區':'03-4990306','大溪院區':'03-3880868','大竹院區':'03-3231266','大湳院區':'03-3630811',
-    '平鎮院區':'03-4690006','埔心院區':'03-4828666','觀音院區':'03-4833366','龍岡院區':'03-4665666' };
-  var TEL = CFG.tel || TEL_DEFAULT;        // {院區名: '03-xxxxxxx'}；JY_VAX.tel 可覆寫
+  var REFRESH = CFG.refresh || 300000;
+  var POLL = CFG.poll || 15000;
+  var LOW = CFG.low || 10;
+  var MOBILE_LIMIT = CFG.mobileLimit || 6;
+  var CUR_V = null, LAST = null, GEO = null, SHOW_ALL = false, COUNTY = '';
+
+  // 院區座標／地址／電話（與官網「看診進度就近排序」代碼同一份；院區搬遷一起改）
+  var CLINICS = [
+    { n: '鶯歌院區', a: '新北市鶯歌區國慶街167號', tel: '02-26702559', lat: 24.9529837, lng: 121.3513375 },
+    { n: '三樹院區', a: '新北市樹林區學成路600號', tel: '02-26807101', lat: 24.9458761, lng: 121.3818186 },
+    { n: '樹林院區', a: '新北市樹林區中華路124號', tel: '02-86850096', lat: 24.9806516, lng: 121.4176074 },
+    { n: '桃園院區', a: '桃園市桃園區桃鶯路333號', tel: '03-3668311', lat: 24.9820308, lng: 121.3193793 },
+    { n: '土城院區', a: '新北市土城區中央路二段155號', tel: '02-22625113', lat: 24.976515, lng: 121.442198 },
+    { n: '八德院區', a: '桃園市八德區興豐路493號', tel: '03-3655225', lat: 24.9304146, lng: 121.2911793 },
+    { n: '龍潭院區', a: '桃園市龍潭區北龍路154號', tel: '03-4990306', lat: 24.8664383, lng: 121.2147782 },
+    { n: '大溪院區', a: '桃園市大溪區慈湖路13號', tel: '03-3880868', lat: 24.8840177, lng: 121.2894696 },
+    { n: '大竹院區', a: '桃園市蘆竹區大竹路436號', tel: '03-3231266', lat: 25.0217492, lng: 121.2632595 },
+    { n: '大湳院區', a: '桃園市八德區大智路13號', tel: '03-3630811', lat: 24.9641796, lng: 121.2997468 },
+    { n: '平鎮院區', a: '桃園市平鎮區中豐路山頂段150-2號', tel: '03-4690006', lat: 24.9008497, lng: 121.2110723 },
+    { n: '埔心院區', a: '桃園市楊梅區瑞溪路二段203號', tel: '03-4828666', lat: 24.9099334, lng: 121.1822147 },
+    { n: '觀音院區', a: '桃園市觀音區大觀路二段113號', tel: '03-4833366', lat: 25.0468336, lng: 121.1422956 },
+    { n: '龍岡院區', a: '桃園市中壢區龍東路390號', tel: '03-4665666', lat: 24.9328648, lng: 121.2557877 }
+  ];
+  var INFO = {}; CLINICS.forEach(function (c) { INFO[c.n] = c; });
+  if (CFG.tel) Object.keys(CFG.tel).forEach(function (k) { INFO[k] = INFO[k] || { n: k }; INFO[k].tel = CFG.tel[k]; });
 
   var CSS = '' +
-'#jy-vaccine-board{--jv-teal:#2EA3A3;--jv-teal-d:#19777A;--jv-teal-l:#E4F5F5;--jv-wave:#CDEDED;--jv-yellow:#F7E35B;--jv-ink:#163B3C;--jv-mute:#5E7F80;--jv-ok:#2E9E6B;--jv-low:#E09A1B;--jv-out:#D4514B;--jv-card:#ffffff;' +
-'font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;color:var(--jv-ink);box-sizing:border-box;position:relative;overflow:hidden;border-radius:22px;background:linear-gradient(170deg,#F1FAFA 0%,#DDF2F2 55%,#CFEBEB 100%);padding:28px 18px 22px;margin:16px 0;line-height:1.45}' +
+'#jy-vaccine-board{--jv-teal:#2EA3A3;--jv-teal-d:#19777A;--jv-teal-l:#E4F5F5;--jv-wave:#CDEDED;--jv-yellow:#F7E35B;--jv-ink:#163B3C;--jv-mute:#5E7F80;--jv-ok:#2E9E6B;--jv-low:#E09A1B;--jv-out:#D4514B;--jv-card:#fff;' +
+'font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;color:var(--jv-ink);box-sizing:border-box;position:relative;overflow:hidden;border-radius:22px;background:linear-gradient(170deg,#F1FAFA 0%,#DDF2F2 55%,#CFEBEB 100%);padding:22px 18px 20px;margin:16px 0;line-height:1.45;float:none;clear:both;width:100%}' +
 '#jy-vaccine-board *{box-sizing:border-box}' +
 '#jy-vaccine-board .jv-wave{position:absolute;left:0;right:0;height:120px;pointer-events:none;opacity:.55}' +
 '#jy-vaccine-board .jv-wave.t{top:-30px}#jy-vaccine-board .jv-wave.b{bottom:-40px;transform:scaleX(-1)}' +
-'#jy-vaccine-board .jv-leaf{position:absolute;width:140px;opacity:.35;pointer-events:none}' +
-'#jy-vaccine-board .jv-leaf.l{left:-30px;bottom:10px}#jy-vaccine-board .jv-leaf.r{right:-30px;top:40px;transform:scaleX(-1)}' +
 '#jy-vaccine-board .jv-in{position:relative;z-index:1;max-width:1100px;margin:0 auto}' +
-'#jy-vaccine-board .jv-head{text-align:center;margin-bottom:18px}' +
-'#jy-vaccine-board .jv-kick{display:inline-block;background:var(--jv-teal-d);color:#fff;font-weight:800;font-size:13px;letter-spacing:.18em;padding:4px 14px;border-radius:999px}' +
-'#jy-vaccine-board h2.jv-title{margin:10px 0 4px;font-size:clamp(26px,4.6vw,40px);font-weight:900;line-height:1.15;color:var(--jv-teal-d);text-shadow:0 2px 0 #fff,0 0 0 #fff;letter-spacing:.02em}' +
-'#jy-vaccine-board h2.jv-title em{font-style:normal;color:#fff;background:var(--jv-teal);padding:0 .3em;border-radius:12px;box-shadow:0 4px 0 var(--jv-teal-d)}' +
-'#jy-vaccine-board h2.jv-title b{color:#4E4A00;background:var(--jv-yellow);padding:0 .3em;border-radius:12px;box-shadow:0 4px 0 #D9C43A}' +
-'#jy-vaccine-board .jv-sub{display:inline-block;margin-top:10px;background:#fff;border:2px solid var(--jv-teal);color:var(--jv-teal-d);font-weight:700;padding:6px 16px;border-radius:999px;font-size:14px}' +
-'#jy-vaccine-board .jv-legend{display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center;font-size:13px;color:var(--jv-mute);margin:14px 0 6px}' +
-'#jy-vaccine-board .jv-legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}' +
-'#jy-vaccine-board .jv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:12px}' +
-'#jy-vaccine-board .jv-card{background:var(--jv-card);border:2px solid var(--jv-teal);border-radius:16px;padding:12px 14px 10px;box-shadow:0 6px 0 rgba(25,119,122,.18);min-width:0;overflow:hidden}' +
+'#jy-vaccine-board .jv-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;text-align:center;margin-bottom:10px}' +
+'#jy-vaccine-board .jv-logo{width:64px;height:64px;border-radius:50%;object-fit:cover;flex:none;box-shadow:0 3px 0 rgba(25,119,122,.25)}' +
+'#jy-vaccine-board .jv-kick{display:inline-block;background:var(--jv-teal-d);color:#fff;font-weight:800;font-size:12px;letter-spacing:.16em;padding:3px 12px;border-radius:999px}' +
+'#jy-vaccine-board h2.jv-title{margin:6px 0 0;font-size:clamp(24px,4.4vw,38px);font-weight:900;line-height:1.2;color:var(--jv-teal-d);letter-spacing:.02em;display:flex;align-items:center;gap:.25em;flex-wrap:wrap;justify-content:center}' +
+'#jy-vaccine-board h2.jv-title .jv-t1,#jy-vaccine-board h2.jv-title .jv-t2{display:inline-block;padding:.08em .45em;border-radius:.35em;line-height:1.25;font-weight:900;-webkit-text-stroke:0;text-shadow:none}' +
+'#jy-vaccine-board h2.jv-title .jv-t1{background:var(--jv-teal-d);color:#fff}' +
+'#jy-vaccine-board h2.jv-title .jv-t2{background:var(--jv-yellow);color:#3f3a00}' +
+'#jy-vaccine-board .jv-sub{display:inline-block;margin-top:8px;background:#fff;border:2px solid var(--jv-teal);color:var(--jv-teal-d);font-weight:700;padding:5px 14px;border-radius:999px;font-size:14px}' +
+'#jy-vaccine-board .jv-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;margin:12px 0 4px}' +
+'#jy-vaccine-board .jv-btn{font:inherit;font-size:14px;font-weight:800;border:none;border-radius:999px;padding:8px 16px;cursor:pointer;background:var(--jv-teal);color:#fff;box-shadow:0 3px 0 var(--jv-teal-d);display:inline-flex;align-items:center;gap:6px}' +
+'#jy-vaccine-board .jv-btn svg{width:16px;height:16px;fill:currentColor}' +
+'#jy-vaccine-board .jv-btn.on{background:var(--jv-yellow);color:#3f3a00;box-shadow:0 3px 0 #D9C43A}' +
+'#jy-vaccine-board .jv-chip{font:inherit;font-size:13px;font-weight:700;border:2px solid var(--jv-teal);background:#fff;color:var(--jv-teal-d);border-radius:999px;padding:5px 12px;cursor:pointer}' +
+'#jy-vaccine-board .jv-chip.on{background:var(--jv-teal-d);border-color:var(--jv-teal-d);color:#fff}' +
+'#jy-vaccine-board .jv-geo{font-size:12px;color:var(--jv-mute);width:100%;text-align:center;min-height:16px}' +
+'#jy-vaccine-board .jv-legend{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:center;font-size:12px;color:var(--jv-mute);margin:6px 0 4px}' +
+'#jy-vaccine-board .jv-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}' +
+'#jy-vaccine-board .jv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:10px}' +
+'#jy-vaccine-board .jv-card{background:var(--jv-card);border:2px solid var(--jv-teal);border-radius:16px;padding:12px 14px 10px;box-shadow:0 6px 0 rgba(25,119,122,.18);min-width:0;overflow:hidden;position:relative}' +
+'#jy-vaccine-board .jv-card.near{border-color:#E0A800;box-shadow:0 6px 0 rgba(224,168,0,.35)}' +
 '#jy-vaccine-board .jv-cname{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-12px -14px 8px;padding:9px 12px;background:var(--jv-teal);color:#fff;border-radius:14px 14px 0 0;font-weight:900;font-size:18px;min-width:0}' +
-'#jy-vaccine-board .jv-cname .jv-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+'#jy-vaccine-board .jv-card.near .jv-cname{background:#E0A800;color:#3f3a00}' +
+'#jy-vaccine-board .jv-cname .jv-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}' +
+'#jy-vaccine-board .jv-near{font-size:11px;background:#fff;color:#8a6500;padding:1px 7px;border-radius:999px;font-weight:800}' +
 '#jy-vaccine-board .jv-tel{display:inline-flex;align-items:center;gap:5px;flex:none;background:#fff;color:var(--jv-teal-d);font-size:13px;font-weight:800;padding:4px 10px;border-radius:999px;text-decoration:none;font-variant-numeric:tabular-nums;box-shadow:0 2px 0 rgba(0,0,0,.12)}' +
 '#jy-vaccine-board .jv-tel svg{width:14px;height:14px;fill:currentColor;flex:none}' +
-'#jy-vaccine-board .jv-tel:hover{background:var(--jv-yellow);color:#4E4A00}' +
+'#jy-vaccine-board .jv-tel:hover{background:var(--jv-yellow);color:#3f3a00}' +
 '#jy-vaccine-board .jv-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px dashed var(--jv-wave)}' +
 '#jy-vaccine-board .jv-row:first-of-type{border-top:none}' +
 '#jy-vaccine-board .jv-vac{font-size:13px;min-width:0}' +
-'#jy-vaccine-board .jv-vac .jv-tag{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;margin-right:4px;vertical-align:1px;background:var(--jv-yellow);color:#4E4A00}' +
+'#jy-vaccine-board .jv-vac .jv-tag{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;margin-right:4px;vertical-align:1px;background:var(--jv-yellow);color:#3f3a00}' +
 '#jy-vaccine-board .jv-vac .jv-tag.pub{background:#D8EBFF;color:#1A4F82}' +
 '#jy-vaccine-board .jv-qty{display:inline-flex;align-items:baseline;gap:2px;font-weight:900;font-size:22px;font-variant-numeric:tabular-nums;white-space:nowrap}' +
 '#jy-vaccine-board .jv-qty small{font-size:11px;font-weight:600;color:var(--jv-mute)}' +
-'#jy-vaccine-board .jv-qty.ok{color:var(--jv-ok)}#jy-vaccine-board .jv-qty.low{color:var(--jv-low)}#jy-vaccine-board .jv-qty.out{color:var(--jv-out)}#jy-vaccine-board .jv-qty.na{color:#9bb;font-size:14px;font-weight:600}#jy-vaccine-board .jv-qty.txt{color:#7a7a7a;font-size:15px;font-weight:800;background:#eef1f1;padding:2px 10px;border-radius:999px}' +
+'#jy-vaccine-board .jv-qty.ok{color:var(--jv-ok)}#jy-vaccine-board .jv-qty.low{color:var(--jv-low)}#jy-vaccine-board .jv-qty.out{color:var(--jv-out)}#jy-vaccine-board .jv-qty.na{color:#9bb;font-size:14px;font-weight:600}' +
+'#jy-vaccine-board .jv-qty.txt{color:#7a7a7a;font-size:14px;font-weight:800;background:#eef1f1;padding:2px 10px;border-radius:999px}' +
 '#jy-vaccine-board .jv-pill{font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;color:#fff;white-space:nowrap}' +
 '#jy-vaccine-board .jv-pill.ok{background:var(--jv-ok)}#jy-vaccine-board .jv-pill.low{background:var(--jv-low)}#jy-vaccine-board .jv-pill.out{background:var(--jv-out)}#jy-vaccine-board .jv-pill.na{background:#B9CFCF}' +
-'#jy-vaccine-board .jv-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--jv-mute)}' +
-'#jy-vaccine-board .jv-meta a{color:var(--jv-teal-d);font-weight:700;text-decoration:none}' +
-'#jy-vaccine-board .jv-foot{text-align:center;font-size:12px;color:var(--jv-mute);margin-top:16px}' +
+'#jy-vaccine-board .jv-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--jv-mute);flex-wrap:wrap}' +
+'#jy-vaccine-board .jv-meta a{color:var(--jv-teal-d);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:3px}' +
+'#jy-vaccine-board .jv-meta a svg{width:12px;height:12px;fill:currentColor}' +
+'#jy-vaccine-board .jv-dist{font-weight:800;color:#8a6500}' +
+'#jy-vaccine-board .jv-more{display:none;margin:12px auto 0}' +
+'#jy-vaccine-board .jv-foot{text-align:center;font-size:12px;color:var(--jv-mute);margin-top:14px}' +
 '#jy-vaccine-board .jv-foot b{color:var(--jv-teal-d)}' +
 '#jy-vaccine-board .jv-live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--jv-ok);margin-right:5px;animation:jv-blink 1.6s infinite}' +
 '@keyframes jv-blink{50%{opacity:.25}}' +
 '#jy-vaccine-board .jv-flash{animation:jv-flash 1.6s ease-out 2}@keyframes jv-flash{0%{background:var(--jv-yellow);border-radius:8px}100%{background:transparent}}' +
-'@media (prefers-reduced-motion:reduce){#jy-vaccine-board .jv-live{animation:none}}' +
-'@media (max-width:520px){#jy-vaccine-board{padding:22px 12px 18px;border-radius:16px}#jy-vaccine-board .jv-grid{grid-template-columns:1fr 1fr;gap:8px}#jy-vaccine-board .jv-card{padding:10px 10px 8px;border-radius:14px}#jy-vaccine-board .jv-cname{font-size:15px;margin:-10px -10px 6px;padding:7px 9px;border-radius:12px 12px 0 0}#jy-vaccine-board .jv-tel{font-size:0;padding:5px 7px;gap:0}#jy-vaccine-board .jv-tel svg{width:15px;height:15px}#jy-vaccine-board .jv-qty{font-size:19px}#jy-vaccine-board .jv-vac{font-size:12px}#jy-vaccine-board .jv-row{flex-wrap:wrap;gap:2px 6px}#jy-vaccine-board .jv-pill{display:none}#jy-vaccine-board .jv-leaf{display:none}}' +
+'@media (prefers-reduced-motion:reduce){#jy-vaccine-board .jv-live,#jy-vaccine-board .jv-flash{animation:none}}' +
+'@media (max-width:640px){' +
+  '#jy-vaccine-board{padding:16px 10px 16px;border-radius:14px;margin:10px 0}' +
+  '#jy-vaccine-board .jv-head{gap:10px;margin-bottom:4px}#jy-vaccine-board .jv-logo{width:44px;height:44px}' +
+  '#jy-vaccine-board .jv-kick{font-size:11px;padding:2px 10px}#jy-vaccine-board .jv-sub{font-size:13px;padding:4px 12px;margin-top:6px}' +
+  '#jy-vaccine-board .jv-legend{font-size:11px;gap:4px 10px}' +
+  '#jy-vaccine-board .jv-grid{grid-template-columns:1fr 1fr;gap:8px}' +
+  '#jy-vaccine-board .jv-card{padding:8px 9px 7px;border-radius:12px}' +
+  '#jy-vaccine-board .jv-cname{font-size:15px;margin:-8px -9px 5px;padding:6px 8px;border-radius:10px 10px 0 0}' +
+  '#jy-vaccine-board .jv-tel{font-size:0;padding:5px 7px;gap:0}#jy-vaccine-board .jv-tel svg{width:15px;height:15px}' +
+  '#jy-vaccine-board .jv-row{padding:4px 0;gap:4px}#jy-vaccine-board .jv-vac{font-size:12px}#jy-vaccine-board .jv-vac .jv-tag{margin-right:2px;padding:1px 5px}' +
+  '#jy-vaccine-board .jv-qty{font-size:19px}#jy-vaccine-board .jv-pill{display:none}' +
+  '#jy-vaccine-board .jv-meta{margin-top:5px;font-size:10px}' +
+  '#jy-vaccine-board .jv-card.hide-m{display:none}#jy-vaccine-board .jv-more{display:inline-flex}' +
+'}' +
 '@media (max-width:360px){#jy-vaccine-board .jv-grid{grid-template-columns:1fr}}';
 
   var WAVE = '<svg class="jv-wave t" viewBox="0 0 1200 120" preserveAspectRatio="none"><path d="M0,60 C200,120 400,0 600,60 C800,120 1000,0 1200,60 L1200,0 L0,0 Z" fill="#fff"/><path d="M0,80 C200,140 400,20 600,80 C800,140 1000,20 1200,80 L1200,0 L0,0 Z" fill="#B9E2E2" opacity=".5"/></svg>';
   var WAVE_B = WAVE.replace('jv-wave t', 'jv-wave b');
-  var LEAF = '<svg class="jv-leaf l" viewBox="0 0 140 140"><g fill="#2EA3A3"><path d="M20 120 C20 60 60 30 120 20 C110 80 80 115 20 120Z"/><path d="M25 118 L110 28" stroke="#fff" stroke-width="3" fill="none"/></g></svg>';
-  var LEAF_R = LEAF.replace('jv-leaf l', 'jv-leaf r');
   var PHONE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1L6.6 10.8z"/></svg>';
+  var PIN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>';
+  var NAV_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11 3 3l3 8-3 8 18-8z"/></svg>';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function splitVac(label) {
@@ -118,6 +166,13 @@ window.JY_VAX = {
   }
   function state(q) { if (q == null) return 'na'; if (typeof q === 'string') return 'txt'; if (q <= 0) return 'out'; if (q < LOW) return 'low'; return 'ok'; }
   var LABEL = { ok: '充足', low: '少量', out: '缺貨', na: '未回報' };
+  function county(name) { var a = (INFO[name] || {}).a || ''; return a.indexOf('新北') === 0 ? '新北' : a.indexOf('桃園') === 0 ? '桃園' : ''; }
+  function km(a, b) {
+    var R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLng = (b.lng - a.lng) * Math.PI / 180;
+    var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+  }
+  function ls(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
 
   function ensureMount() {
     var el = document.getElementById(MOUNT_ID);
@@ -129,13 +184,24 @@ window.JY_VAX = {
     return el;
   }
 
+  // ---------- 畫面 ----------
   function render(d) {
     var el = ensureMount();
     var prev = {};
     if (LAST) LAST.clinics.forEach(function (c) { prev[c.name] = c.qty; });
     LAST = d; CUR_V = d.v == null ? CUR_V : d.v;
     var vacs = (d.vaccines || []).map(splitVac);
-    var cards = (d.clinics || []).map(function (c) {
+
+    var list = (d.clinics || []).map(function (c) {
+      var info = INFO[c.name] || {};
+      var dist = (GEO && info.lat) ? km(GEO, info) : null;
+      return { c: c, info: info, dist: dist };
+    });
+    if (GEO) list.sort(function (a, b) { return (a.dist == null ? 9e9 : a.dist) - (b.dist == null ? 9e9 : b.dist); });
+    if (COUNTY) list = list.filter(function (x) { return county(x.c.name) === COUNTY; });
+
+    var cards = list.map(function (x, idx) {
+      var c = x.c, info = x.info;
       var rows = vacs.map(function (v, i) {
         var q = c.qty[i], st = state(q);
         var changed = prev[c.name] && String(prev[c.name][i]) !== String(q);
@@ -144,22 +210,61 @@ window.JY_VAX = {
         return '<div class="jv-row"><div class="jv-vac"><span class="jv-tag' + (v.pub ? ' pub' : '') + '">' + v.tag + '</span>' + esc(v.name) + '</div>' +
           '<div style="display:flex;align-items:center;gap:6px"><span class="jv-qty ' + st + (changed ? ' jv-flash' : '') + '">' + qtyHtml + '</span>' + pill + '</div></div>';
       }).join('');
-      var telNo = TEL[c.name] || '';
-      var tel = telNo ? '<a class="jv-tel" href="tel:' + esc(telNo.replace(/[^\d+]/g, '')) + '" aria-label="撥打' + esc(c.name) + '">' + PHONE_ICON + '<span>' + esc(telNo) + '</span></a>' : '';
-      return '<div class="jv-card"><div class="jv-cname"><span class="jv-n">' + esc(c.name) + '</span>' + tel + '</div>' + rows +
-        '<div class="jv-meta"><span>' + (c.updatedAt ? '更新 ' + esc(c.updatedAt) : '尚未回報') + '</span></div></div>';
+      var tel = info.tel ? '<a class="jv-tel" href="tel:' + esc(info.tel.replace(/[^\d+]/g, '')) + '" aria-label="撥打' + esc(c.name) + '">' + PHONE_ICON + '<span>' + esc(info.tel) + '</span></a>' : '';
+      var near = GEO && idx === 0 && !COUNTY && x.dist != null;
+      var distHtml = x.dist != null ? '<span class="jv-dist">' + PIN_ICON.replace('<svg', '<svg style="width:11px;height:11px;fill:currentColor;vertical-align:-1px"') + ' ' + (x.dist < 10 ? x.dist.toFixed(1) : Math.round(x.dist)) + ' km</span>' : '';
+      var nav = info.a ? '<a href="https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(info.a) + (GEO ? '&origin=' + GEO.lat + ',' + GEO.lng : '') + '" target="_blank" rel="noopener">' + NAV_ICON + '導航</a>' : '';
+      return '<div class="jv-card' + (near ? ' near' : '') + (idx >= MOBILE_LIMIT && !SHOW_ALL ? ' hide-m' : '') + '">' +
+        '<div class="jv-cname"><span class="jv-n">' + esc(c.name) + (near ? '<span class="jv-near">最近</span>' : '') + '</span>' + tel + '</div>' + rows +
+        '<div class="jv-meta"><span>' + (c.updatedAt ? '更新 ' + esc(c.updatedAt) : '尚未回報') + '</span><span style="display:flex;gap:10px;align-items:center">' + distHtml + nav + '</span></div></div>';
     }).join('');
 
-    el.innerHTML = '<style>' + CSS + '</style>' + WAVE + WAVE_B + LEAF + LEAF_R +
-      '<div class="jv-in"><div class="jv-head">' +
-      '<span class="jv-kick">各院區即時庫存</span>' +
-      '<h2 class="jv-title"><em>自費</em>／<b>公費</b> 流感疫苗</h2>' +
-      '<div class="jv-sub">免預約，隨到隨打</div>' +
-      '<div class="jv-legend"><span><i style="background:var(--jv-ok)"></i>充足 ' + LOW + ' 劑以上</span><span><i style="background:var(--jv-low)"></i>少量 1–' + (LOW - 1) + ' 劑</span><span><i style="background:var(--jv-out)"></i>缺貨</span><span><i style="background:#B9CFCF"></i>未回報</span><span><i style="background:#7a7a7a"></i>不提供（院區不施打）</span></div>' +
-      '</div><div class="jv-grid">' + cards + '</div>' +
+    var hidden = Math.max(0, list.length - MOBILE_LIMIT);
+    var logo = LOGO ? '<img class="jv-logo" src="' + esc(LOGO) + '" alt="金鶯診所">' : '';
+
+    el.innerHTML = '<style>' + CSS + '</style>' + WAVE + WAVE_B +
+      '<div class="jv-in">' +
+      '<div class="jv-head">' + logo + '<div>' +
+        '<span class="jv-kick">各院區即時庫存</span>' +
+        '<h2 class="jv-title"><span class="jv-t1">自費</span><span>／</span><span class="jv-t2">公費</span><span>流感疫苗</span></h2>' +
+        '<div class="jv-sub">免預約，隨到隨打</div>' +
+      '</div></div>' +
+      '<div class="jv-tools">' +
+        '<button type="button" class="jv-btn' + (GEO ? ' on' : '') + '" id="jv-geo-btn">' + PIN_ICON + (GEO ? '已依我的位置排序' : '依我的位置排序') + '</button>' +
+        ['', '新北', '桃園'].map(function (k) { return '<button type="button" class="jv-chip' + (COUNTY === k ? ' on' : '') + '" data-county="' + k + '">' + (k || '全部院區') + '</button>'; }).join('') +
+        '<div class="jv-geo" id="jv-geo-msg"></div>' +
+      '</div>' +
+      '<div class="jv-legend"><span><i style="background:var(--jv-ok)"></i>充足 ' + LOW + ' 劑以上</span><span><i style="background:var(--jv-low)"></i>少量 1–' + (LOW - 1) + ' 劑</span><span><i style="background:var(--jv-out)"></i>缺貨</span><span><i style="background:#B9CFCF"></i>未回報</span><span><i style="background:#7a7a7a"></i>不提供</span></div>' +
+      '<div class="jv-grid">' + cards + '</div>' +
+      (hidden > 0 && !SHOW_ALL ? '<div style="text-align:center"><button type="button" class="jv-btn jv-more" id="jv-more">顯示其餘 ' + hidden + ' 個院區</button></div>' : '') +
       '<div class="jv-foot"><span class="jv-live"></span>數量由各院區人員回報，最後更新 <b>' + esc(d.latestUpdate || '—') + '</b>・庫存變動快速，前往前請先致電院區確認是否有存量</div></div>';
+
+    var gb = el.querySelector('#jv-geo-btn'); if (gb) gb.onclick = function () { locate(false); };
+    var mb = el.querySelector('#jv-more'); if (mb) mb.onclick = function () { SHOW_ALL = true; render(LAST); };
+    Array.prototype.forEach.call(el.querySelectorAll('.jv-chip'), function (b) { b.onclick = function () { COUNTY = b.getAttribute('data-county'); SHOW_ALL = false; render(LAST); }; });
   }
 
+  // ---------- 定位 ----------
+  function geoMsg(t) { var m = document.getElementById('jv-geo-msg'); if (m) m.textContent = t || ''; }
+  function locate(auto) {
+    if (!navigator.geolocation) { geoMsg('此裝置不支援定位'); return; }
+    if (!auto) geoMsg('正在取得您的位置…');
+    navigator.geolocation.getCurrentPosition(function (p) {
+      GEO = { lat: p.coords.latitude, lng: p.coords.longitude };
+      ls('geo_ok', 1); ls('geo_last', { lat: GEO.lat, lng: GEO.lng, t: Date.now() });
+      if (LAST) render(LAST);
+      geoMsg('已依您的位置由近到遠排序');
+    }, function () {
+      if (auto) { GEO = null; if (LAST) render(LAST); geoMsg(''); return; }
+      geoMsg('無法取得位置，請確認已允許定位');
+    }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 });
+  }
+  function geoInit() {
+    var last = ls('geo_last');
+    if (ls('geo_ok') && last && last.lat) { GEO = { lat: last.lat, lng: last.lng }; locate(true); }
+  }
+
+  // ---------- 資料 ----------
   function jsonp(action, cb) {
     var name = 'jyVax' + Date.now() + Math.floor(Math.random() * 1e4);
     var s = document.createElement('script');
@@ -169,17 +274,12 @@ window.JY_VAX = {
     document.head.appendChild(s);
   }
   var busy = false;
-  function load() {
-    if (busy) return; busy = true;
-    jsonp('stock', function (d) { busy = false; if (d && !d.error) render(d); });
-  }
-  function check() {
-    if (document.hidden) return;                       // 背景分頁不打 API
-    jsonp('version', function (d) { if (d && d.v != null && d.v !== CUR_V) load(); });
-  }
+  function load() { if (busy) return; busy = true; jsonp('stock', function (d) { busy = false; if (d && !d.error) render(d); }); }
+  function check() { if (document.hidden) return; jsonp('version', function (d) { if (d && d.v != null && d.v !== CUR_V) load(); }); }
 
-  if (CFG.data) { render(CFG.data); return; }        // 預覽／靜態資料
   function boot() {
+    geoInit();
+    if (CFG.data) { render(CFG.data); return; }          // 預覽／靜態資料
     load();
     setInterval(check, POLL);
     setInterval(load, REFRESH);
