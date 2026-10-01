@@ -29,7 +29,7 @@
 <script>
 /* ===== 設定：改這裡就好 ===== */
 window.JY_VAX = {
-  // logo: 'logo.png',   // 預設用官網 logo 圖；若上傳 logo 到同資料夾可改這裡
+  logo: 'logo.png',    // repo 的 logo.png（與 board.html 同層；GitHub Pages 檔名分大小寫）
   mobileLimit: 6,     // 手機版預設展開幾個院區，其餘收合
   api: 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec',
   low: 10,          // 少量門檻（劑）：>= low 充足、1~low-1 少量、0 缺貨
@@ -178,10 +178,18 @@ window.JY_VAX = {
     var el = document.getElementById(MOUNT_ID);
     if (el) return el;
     el = document.createElement('div'); el.id = MOUNT_ID;
-    var anchor = CFG.mount ? document.querySelector(CFG.mount) : null;
+    // mount 可為字串或陣列（依序找第一個存在的元素），看板插在它後面
+    var sels = Array.isArray(CFG.mount) ? CFG.mount : (CFG.mount ? [CFG.mount] : []);
+    var anchor = null;
+    for (var i = 0; i < sels.length && !anchor; i++) anchor = document.querySelector(sels[i]);
     if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor.nextSibling);
     else document.body.appendChild(el);
     return el;
+  }
+  // 只在指定頁面執行（pages 未設定＝所有頁面）
+  if (CFG.pages && CFG.pages.length) {
+    var path = location.pathname.replace(/\/+$/, '') || '/';
+    if (CFG.pages.map(function (p) { return p.replace(/\/+$/, '') || '/'; }).indexOf(path) < 0) return;
   }
 
   // ---------- 畫面 ----------
