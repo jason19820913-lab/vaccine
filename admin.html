@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>金鶯診所 疫苗庫存填報</title>
+<style>
+:root{--teal:#3EA6A6;--teal-d:#1F7F7F;--teal-l:#E3F4F4;--yellow:#F9E66B;--ink:#1f3a3a;--muted:#5f7b7b;--line:#cfe6e6;--red:#d9534f}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;background:linear-gradient(160deg,#eef8f8,#d8efef);color:var(--ink);min-height:100vh}
+.wrap{max-width:760px;margin:0 auto;padding:20px 14px 60px}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.brand .logo{width:42px;height:42px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;letter-spacing:.5px}
+.brand h1{font-size:20px;margin:0;color:var(--teal-d)}
+.brand small{display:block;font-size:12px;color:var(--muted);font-weight:400}
+.card{background:#fff;border:2px solid var(--teal);border-radius:16px;padding:18px;box-shadow:0 6px 18px rgba(31,127,127,.12);margin-bottom:16px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(62,166,166,.18)}
+button{font:inherit;font-size:16px;font-weight:700;padding:11px 18px;border:none;border-radius:999px;cursor:pointer}
+.btn-p{background:var(--teal);color:#fff;width:100%;margin-top:14px}
+.btn-p:disabled{opacity:.6;cursor:wait}
+.btn-s{background:var(--teal-l);color:var(--teal-d);padding:8px 14px;font-size:14px}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.topbar .who{font-size:14px;color:var(--muted)}
+.topbar .who b{color:var(--teal-d)}
+.vrow{display:grid;grid-template-columns:1fr 110px 110px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line)}
+.vrow:last-child{border-bottom:none}
+.vrow .vname{font-weight:700;font-size:15px}
+.vrow .vtag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:999px;margin-right:6px;vertical-align:middle;background:var(--yellow);color:#5a4b00}
+.vrow .vtag.pub{background:#d6ebff;color:#1b4e80}
+.vrow .cur{font-size:13px;color:var(--muted);text-align:center}
+.vrow .cur b{display:block;font-size:20px;color:var(--teal-d)}
+.vrow input{text-align:center;font-size:18px;font-weight:700}
+.hd{display:grid;grid-template-columns:1fr 110px 110px;gap:10px;font-size:12px;color:var(--muted);text-align:center;padding-bottom:4px}
+.hd span:first-child{text-align:left}
+.meta{font-size:12px;color:var(--muted);margin-top:8px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--teal-d);color:#fff;padding:10px 18px;border-radius:999px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:9}
+.toast.show{opacity:1}
+.toast.err{background:var(--red)}
+.err{color:var(--red);font-size:13px;margin-top:8px;min-height:18px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;background:var(--teal-l)}
+td.num{text-align:center;white-space:nowrap}
+.hidden{display:none}
+h2{font-size:16px;color:var(--teal-d);margin:0 0 10px}
+.logfilter{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.logfilter select{width:auto;font-size:14px;padding:6px 10px}
+@media (max-width:480px){.vrow,.hd{grid-template-columns:1fr 80px 90px;gap:6px}.vrow .vname{font-size:14px}table{font-size:12px}th,td{padding:6px 4px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="logo">Elite</div><h1>疫苗庫存填報<small>金鶯診所 JIN YING CLINIC · 員工專用</small></h1></div>
+
+  <!-- 登入 -->
+  <div class="card" id="loginCard">
+    <h2>員工登入</h2>
+    <label>帳號</label><input id="user" autocomplete="username" autocapitalize="off">
+    <label>密碼</label><input id="pw" type="password" autocomplete="current-password">
+    <div class="err" id="loginErr"></div>
+    <button class="btn-p" id="loginBtn" onclick="doLogin()">登入</button>
+  </div>
+
+  <!-- 填報 -->
+  <div class="card hidden" id="formCard">
+    <div class="topbar">
+      <div class="who">登入者：<b id="whoName"></b> <span id="whoRole"></span></div>
+      <button class="btn-s" onclick="doLogout()">登出</button>
+    </div>
+    <label>填報院區</label>
+    <select id="clinic" onchange="renderForm()"></select>
+    <div class="meta" id="clinicMeta"></div>
+    <div style="margin-top:12px" class="hd"><span>疫苗</span><span>目前庫存</span><span>新數量</span></div>
+    <div id="rows"></div>
+    <label>備註（選填，例如：到貨 50 劑／盤點校正）</label>
+    <input id="note" maxlength="60" placeholder="留空也可以">
+    <div class="err" id="formErr"></div>
+    <button class="btn-p" id="saveBtn" onclick="doSave()">送出更新</button>
+    <div class="meta">只需填要更動的欄位，留空代表不變；每次更動都會記錄到「異動紀錄」。</div>
+  </div>
+
+  <!-- 紀錄 -->
+  <div class="card hidden" id="logCard">
+    <h2>異動紀錄</h2>
+    <div class="logfilter">
+      <span class="meta" style="margin:0">院區</span>
+      <select id="logClinic" onchange="loadLogs()"></select>
+      <button class="btn-s" onclick="loadLogs()">重新整理</button>
+    </div>
+    <div style="overflow:auto"><table><thead><tr><th>時間</th><th>院區</th><th>疫苗</th><th class="num">原→新</th><th>填報者</th><th>備註</th></tr></thead><tbody id="logBody"></tbody></table></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ★ 部署 Apps Script 後，把 /exec 網址貼在這裡
+var API = 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec';
+
+var S = { token: localStorage.getItem('vac_token') || '', me: null, stock: null };
+
+function get(params, cb) {
+  params.ua = navigator.userAgent.slice(0, 120);
+  var q = Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k] == null ? '' : params[k]); }).join('&');
+  fetch(API + '?' + q).then(function (r) { return r.json(); }).then(function (d) {
+    if (d && d.needLogin) { clearSession(); toast('登入逾時，請重新登入', 'err'); return; }
+    cb(d);
+  }).catch(function () { toast('連線失敗，請稍後再試', 'err'); unlock(); });
+}
+function toast(msg, cls) { var t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show ' + (cls || ''); setTimeout(function () { t.className = 'toast'; }, 2600); }
+function unlock() { document.getElementById('loginBtn').disabled = false; document.getElementById('saveBtn').disabled = false; }
+function show(id, on) { document.getElementById(id).classList.toggle('hidden', !on); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function vtag(label) {
+  var m = label.match(/^(自費|公費疫苗|公費)[-－]?\s*(.*)$/);
+  if (!m) return '<span class="vname">' + esc(label) + '</span>';
+  var pub = m[1].indexOf('公費') === 0;
+  return '<span class="vname"><span class="vtag' + (pub ? ' pub' : '') + '">' + (pub ? '公費' : '自費') + '</span>' + esc(m[2] || (pub ? '不分廠牌' : '')) + '</span>';
+}
+
+// ---- 登入 ----
+function doLogin() {
+  var u = document.getElementById('user').value.trim(), p = document.getElementById('pw').value;
+  if (!u || !p) { document.getElementById('loginErr').textContent = '請輸入帳號與密碼'; return; }
+  document.getElementById('loginErr').textContent = '';
+  document.getElementById('loginBtn').disabled = true;
+  get({ action: 'login', user: u, pw: p }, function (d) {
+    unlock();
+    if (d.error) { document.getElementById('loginErr').textContent = d.error; return; }
+    S.token = d.token; localStorage.setItem('vac_token', d.token);
+    enter(d);
+  });
+}
+function clearSession() { S.token = ''; S.me = null; localStorage.removeItem('vac_token'); show('loginCard', true); show('formCard', false); show('logCard', false); }
+function doLogout() { get({ action: 'logout', token: S.token }, function () {}); clearSession(); toast('已登出'); }
+function enter(d) {
+  S.me = d;
+  document.getElementById('whoName').textContent = d.name + (d.clinic ? '（' + d.clinic + '）' : '');
+  document.getElementById('whoRole').textContent = d.role === 'admin' ? '· 管理員' : '';
+  var sel = document.getElementById('clinic'), lsel = document.getElementById('logClinic');
+  var allow = d.role === 'admin' || !d.clinic ? d.clinics : [d.clinic];
+  sel.innerHTML = allow.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+  lsel.innerHTML = (d.role === 'admin' ? '<option value="">全部院區</option>' : '') + allow.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+  if (d.clinic && allow.indexOf(d.clinic) >= 0) { sel.value = d.clinic; lsel.value = d.clinic; }
+  show('loginCard', false); show('formCard', true); show('logCard', true);
+  loadStock(); loadLogs();
+}
+document.getElementById('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+
+// ---- 庫存 ----
+function loadStock() { get({ action: 'stock' }, function (d) { if (d.error) { toast(d.error, 'err'); return; } S.stock = d; renderForm(); }); }
+function renderForm() {
+  if (!S.stock) return;
+  var clinic = document.getElementById('clinic').value;
+  var c = S.stock.clinics.filter(function (x) { return x.name === clinic; })[0];
+  var html = '';
+  S.stock.vaccines.forEach(function (v, i) {
+    var cur = c && c.qty[i] != null ? c.qty[i] : null;
+    html += '<div class="vrow">' + vtag(v) +
+      '<div class="cur"><b>' + (cur == null ? '—' : cur) + '</b>' + (cur == null ? '未回報' : '劑') + '</div>' +
+      '<input type="number" min="0" step="1" inputmode="numeric" id="q' + i + '" placeholder="不變"></div>';
+  });
+  document.getElementById('rows').innerHTML = html;
+  document.getElementById('clinicMeta').textContent = c && c.updatedAt ? '上次更新：' + c.updatedAt + (c.updatedBy ? '（' + c.updatedBy + '）' : '') : '尚未有填報紀錄';
+  document.getElementById('note').value = '';
+  document.getElementById('formErr').textContent = '';
+}
+function doSave() {
+  if (!S.stock) return;
+  var clinic = document.getElementById('clinic').value, qty = [], any = false;
+  for (var i = 0; i < S.stock.vaccines.length; i++) {
+    var v = document.getElementById('q' + i).value.trim();
+    if (v === '') { qty.push(null); continue; }
+    if (!/^\d+$/.test(v)) { document.getElementById('formErr').textContent = S.stock.vaccines[i] + ' 請輸入 0 以上的整數'; return; }
+    qty.push(Number(v)); any = true;
+  }
+  var note = document.getElementById('note').value.trim();
+  if (!any && !note) { document.getElementById('formErr').textContent = '沒有任何更動'; return; }
+  document.getElementById('formErr').textContent = '';
+  document.getElementById('saveBtn').disabled = true;
+  get({ action: 'update', token: S.token, clinic: clinic, qty: JSON.stringify(qty), note: note }, function (d) {
+    unlock();
+    if (d.error) { document.getElementById('formErr').textContent = d.error; return; }
+    S.stock = d; renderForm();
+    toast(d.changed ? clinic + ' 已更新 ' + d.changed + ' 項' : '已記錄備註，數量未變');
+    loadLogs();
+  });
+}
+
+// ---- 紀錄 ----
+function loadLogs() {
+  if (!S.token) return;
+  get({ action: 'logs', token: S.token, clinic: document.getElementById('logClinic').value, limit: 100 }, function (d) {
+    if (d.error) return;
+    var body = document.getElementById('logBody');
+    if (!d.logs.length) { body.innerHTML = '<tr><td colspan="6" class="meta">尚無紀錄</td></tr>'; return; }
+    body.innerHTML = d.logs.map(function (r) {
+      var v = r.vaccine ? vtag(r.vaccine).replace(/class="vname"/, 'class="vname" style="font-weight:400;font-size:12px"') : (r.type === '異動' ? '' : '<span class="meta">' + esc(r.type) + '</span>');
+      return '<tr><td style="white-space:nowrap">' + esc(r.time) + '</td><td>' + esc(r.clinic) + '</td><td>' + v + '</td><td class="num">' +
+        (r.newQty == null ? '' : '<span class="meta">' + (r.oldQty == null ? '—' : esc(r.oldQty)) + '</span> → <b>' + esc(r.newQty) + '</b>') +
+        '</td><td>' + esc(r.name || r.acct) + '</td><td>' + esc(r.note) + '</td></tr>';
+    }).join('');
+  });
+}
+
+// ---- 啟動：有 token 就直接進入 ----
+if (S.token) {
+  get({ action: 'me', token: S.token }, function (d) { if (d.success) enter(d); else clearSession(); });
+}
+</script>
+</body>
+</html>
