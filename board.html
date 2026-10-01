@@ -31,7 +31,8 @@
 window.JY_VAX = {
   api: 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec',
   low: 10,          // 少量門檻（劑）：>= low 充足、1~low-1 少量、0 缺貨
-  refresh: 60000    // 自動刷新間隔（毫秒）
+  poll: 15000,      // 每幾毫秒檢查一次版本號（有異動約 15 秒內更新）
+  refresh: 300000   // 保底整份重抓間隔（毫秒）
   // tel: { '鶯歌院區': '02-2678-xxxx' }   // 選填：卡片右下角顯示電話
 };
 </script>
@@ -42,13 +43,15 @@ window.JY_VAX = {
  *   A. 官網後台「最新消息」或任一頁面內容放一個容器：<div id="jy-vaccine-board"></div>
  *      再把本檔用 GTM 自訂 HTML 代碼注入，觸發條件為該頁網址。
  *   B. GTM 代碼內設定 JY_VAX.mount = 'CSS 選擇器'，會自動 insert 到該元素之後。
- * 資料來源：Apps Script ?action=stock（JSONP，callback 參數），約每 60 秒自動刷新。
+ * 資料來源：Apps Script ?action=stock（JSONP）。每 15 秒查 ?action=version，版本號變了才重抓整份；切回分頁也立即檢查。
  * ============================================================ */
 (function () {
   var CFG = window.JY_VAX || {};
   var API = CFG.api || 'https://script.google.com/macros/s/AKfycbyg27BeLHq_F4alO48T0QcTnbK5yy-dR19M4zcjTxuWrEdTJbd8zIg-nAso_mVC2paD/exec';
   var MOUNT_ID = 'jy-vaccine-board';
-  var REFRESH = CFG.refresh || 60000;
+  var REFRESH = CFG.refresh || 300000;     // 保底整份重抓（毫秒）
+  var POLL    = CFG.poll    || 15000;      // 版本號偵測間隔（毫秒）：有異動約 15 秒內更新
+  var CUR_V   = null, LAST = null;
   var LOW = CFG.low || 10;               // 少量門檻（劑）
   var TEL_DEFAULT = { '鶯歌院區':'02-26702559','三樹院區':'02-26807101','樹林院區':'02-86850096','桃園院區':'03-3668311','土城院區':'02-22625113',
     '八德院區':'03-3655225','龍潭院區':'03-4990306','大溪院區':'03-3880868','大竹院區':'03-3231266','大湳院區':'03-3630811',
@@ -95,6 +98,7 @@ window.JY_VAX = {
 '#jy-vaccine-board .jv-foot b{color:var(--jv-teal-d)}' +
 '#jy-vaccine-board .jv-live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--jv-ok);margin-right:5px;animation:jv-blink 1.6s infinite}' +
 '@keyframes jv-blink{50%{opacity:.25}}' +
+'#jy-vaccine-board .jv-flash{animation:jv-flash 1.6s ease-out 2}@keyframes jv-flash{0%{background:var(--jv-yellow);border-radius:8px}100%{background:transparent}}' +
 '@media (prefers-reduced-motion:reduce){#jy-vaccine-board .jv-live{animation:none}}' +
 '@media (max-width:520px){#jy-vaccine-board{padding:22px 12px 18px;border-radius:16px}#jy-vaccine-board .jv-grid{grid-template-columns:1fr 1fr;gap:8px}#jy-vaccine-board .jv-card{padding:10px 10px 8px;border-radius:14px}#jy-vaccine-board .jv-cname{font-size:15px;margin:-10px -10px 6px;padding:7px 9px;border-radius:12px 12px 0 0}#jy-vaccine-board .jv-tel{font-size:0;padding:5px 7px;gap:0}#jy-vaccine-board .jv-tel svg{width:15px;height:15px}#jy-vaccine-board .jv-qty{font-size:19px}#jy-vaccine-board .jv-vac{font-size:12px}#jy-vaccine-board .jv-row{flex-wrap:wrap;gap:2px 6px}#jy-vaccine-board .jv-pill{display:none}#jy-vaccine-board .jv-leaf{display:none}}' +
 '@media (max-width:360px){#jy-vaccine-board .jv-grid{grid-template-columns:1fr}}';
@@ -127,14 +131,18 @@ window.JY_VAX = {
 
   function render(d) {
     var el = ensureMount();
+    var prev = {};
+    if (LAST) LAST.clinics.forEach(function (c) { prev[c.name] = c.qty; });
+    LAST = d; CUR_V = d.v == null ? CUR_V : d.v;
     var vacs = (d.vaccines || []).map(splitVac);
     var cards = (d.clinics || []).map(function (c) {
       var rows = vacs.map(function (v, i) {
         var q = c.qty[i], st = state(q);
+        var changed = prev[c.name] && String(prev[c.name][i]) !== String(q);
         var qtyHtml = q == null ? '—' : (st === 'txt' ? esc(q) : esc(q) + '<small>劑</small>');
         var pill = st === 'txt' ? '' : '<span class="jv-pill ' + st + '">' + LABEL[st] + '</span>';
         return '<div class="jv-row"><div class="jv-vac"><span class="jv-tag' + (v.pub ? ' pub' : '') + '">' + v.tag + '</span>' + esc(v.name) + '</div>' +
-          '<div style="display:flex;align-items:center;gap:6px"><span class="jv-qty ' + st + '">' + qtyHtml + '</span>' + pill + '</div></div>';
+          '<div style="display:flex;align-items:center;gap:6px"><span class="jv-qty ' + st + (changed ? ' jv-flash' : '') + '">' + qtyHtml + '</span>' + pill + '</div></div>';
       }).join('');
       var telNo = TEL[c.name] || '';
       var tel = telNo ? '<a class="jv-tel" href="tel:' + esc(telNo.replace(/[^\d+]/g, '')) + '" aria-label="撥打' + esc(c.name) + '">' + PHONE_ICON + '<span>' + esc(telNo) + '</span></a>' : '';
@@ -152,17 +160,32 @@ window.JY_VAX = {
       '<div class="jv-foot"><span class="jv-live"></span>數量由各院區人員回報，最後更新 <b>' + esc(d.latestUpdate || '—') + '</b>・庫存變動快速，前往前請先致電院區確認是否有存量</div></div>';
   }
 
-  function load() {
-    var cb = 'jyVax' + Date.now();
-    window[cb] = function (d) { try { if (d && !d.error) render(d); } finally { delete window[cb]; s.parentNode && s.parentNode.removeChild(s); } };
+  function jsonp(action, cb) {
+    var name = 'jyVax' + Date.now() + Math.floor(Math.random() * 1e4);
     var s = document.createElement('script');
-    s.src = API + '?action=stock&callback=' + cb + '&_=' + Date.now();
-    s.onerror = function () { delete window[cb]; };
+    window[name] = function (d) { try { cb(d); } finally { delete window[name]; s.parentNode && s.parentNode.removeChild(s); } };
+    s.src = API + '?action=' + action + '&callback=' + name + '&_=' + Date.now();
+    s.onerror = function () { delete window[name]; s.parentNode && s.parentNode.removeChild(s); };
     document.head.appendChild(s);
+  }
+  var busy = false;
+  function load() {
+    if (busy) return; busy = true;
+    jsonp('stock', function (d) { busy = false; if (d && !d.error) render(d); });
+  }
+  function check() {
+    if (document.hidden) return;                       // 背景分頁不打 API
+    jsonp('version', function (d) { if (d && d.v != null && d.v !== CUR_V) load(); });
   }
 
   if (CFG.data) { render(CFG.data); return; }        // 預覽／靜態資料
-  function boot() { load(); setInterval(load, REFRESH); }
+  function boot() {
+    load();
+    setInterval(check, POLL);
+    setInterval(load, REFRESH);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+    window.addEventListener('focus', check);
+  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
 
