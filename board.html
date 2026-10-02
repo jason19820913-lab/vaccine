@@ -108,9 +108,9 @@ window.JY_VAX = {
 '#jy-vaccine-board .jv-card.near{border-color:#E0A800;box-shadow:0 6px 0 rgba(224,168,0,.35)}' +
 '#jy-vaccine-board .jv-cname{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-12px -14px 8px;padding:9px 12px;background:var(--jv-teal);color:#fff;border-radius:14px 14px 0 0;font-weight:900;font-size:18px;min-width:0}' +
 '#jy-vaccine-board .jv-card.near .jv-cname{background:#E0A800;color:#3f3a00}' +
-'#jy-vaccine-board .jv-cname .jv-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}' +
-'#jy-vaccine-board .jv-near{font-size:11px;background:#fff;color:#8a6500;padding:1px 7px;border-radius:999px;font-weight:800}' +
-'#jy-vaccine-board .jv-tel{display:inline-flex;align-items:center;gap:5px;flex:none;background:#fff;color:var(--jv-teal-d);font-size:13px;font-weight:800;padding:4px 10px;border-radius:999px;text-decoration:none;font-variant-numeric:tabular-nums;box-shadow:0 2px 0 rgba(0,0,0,.12)}' +
+'#jy-vaccine-board .jv-cname .jv-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1 1 auto;min-width:0}' +
+'#jy-vaccine-board .jv-near{font-size:10px;background:#E0A800;color:#3f3a00;padding:1px 7px;border-radius:999px;font-weight:800;margin-right:4px}' +
+'#jy-vaccine-board .jv-tel{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;width:auto;min-width:0;line-height:1.2;background:#fff;color:var(--jv-teal-d);font-size:13px;font-weight:800;padding:4px 10px;border-radius:999px;text-decoration:none;font-variant-numeric:tabular-nums;box-shadow:0 2px 0 rgba(0,0,0,.12)}' +
 '#jy-vaccine-board .jv-tel svg{width:14px;height:14px;fill:currentColor;flex:none}' +
 '#jy-vaccine-board .jv-tel:hover{background:var(--jv-yellow);color:#3f3a00}' +
 '#jy-vaccine-board .jv-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px dashed var(--jv-wave)}' +
@@ -143,7 +143,9 @@ window.JY_VAX = {
   '#jy-vaccine-board .jv-grid{grid-template-columns:1fr 1fr;gap:8px}' +
   '#jy-vaccine-board .jv-card{padding:8px 9px 7px;border-radius:12px}' +
   '#jy-vaccine-board .jv-cname{font-size:15px;margin:-8px -9px 5px;padding:6px 8px;border-radius:10px 10px 0 0}' +
-  '#jy-vaccine-board .jv-tel{font-size:0;padding:5px 7px;gap:0}#jy-vaccine-board .jv-tel svg{width:15px;height:15px}' +
+  '#jy-vaccine-board .jv-cname .jv-n{flex:1 1 auto;min-width:0;font-size:15px}' +
+  '#jy-vaccine-board .jv-tel{flex:0 0 32px;width:32px!important;min-width:32px!important;max-width:32px!important;height:32px;padding:0!important;margin:0;border-radius:50%;justify-content:center;gap:0;font-size:0;line-height:0}' +
+  '#jy-vaccine-board .jv-tel span{display:none!important}#jy-vaccine-board .jv-tel svg{width:16px;height:16px}' +
   '#jy-vaccine-board .jv-row{padding:4px 0;gap:4px}#jy-vaccine-board .jv-vac{font-size:12px}#jy-vaccine-board .jv-vac .jv-tag{margin-right:2px;padding:1px 5px}' +
   '#jy-vaccine-board .jv-qty{font-size:19px}#jy-vaccine-board .jv-pill{display:none}' +
   '#jy-vaccine-board .jv-meta{margin-top:5px;font-size:10px}' +
@@ -220,10 +222,10 @@ window.JY_VAX = {
       }).join('');
       var tel = info.tel ? '<a class="jv-tel" href="tel:' + esc(info.tel.replace(/[^\d+]/g, '')) + '" aria-label="撥打' + esc(c.name) + '">' + PHONE_ICON + '<span>' + esc(info.tel) + '</span></a>' : '';
       var near = GEO && idx === 0 && !COUNTY && x.dist != null;
-      var distHtml = x.dist != null ? '<span class="jv-dist">' + PIN_ICON.replace('<svg', '<svg style="width:11px;height:11px;fill:currentColor;vertical-align:-1px"') + ' ' + (x.dist < 10 ? x.dist.toFixed(1) : Math.round(x.dist)) + ' km</span>' : '';
+      var distHtml = x.dist != null ? (near ? '<span class="jv-near">最近</span>' : '') + '<span class="jv-dist">' + PIN_ICON.replace('<svg', '<svg style="width:11px;height:11px;fill:currentColor;vertical-align:-1px"') + ' ' + (x.dist < 10 ? x.dist.toFixed(1) : Math.round(x.dist)) + ' km</span>' : '';
       var nav = info.a ? '<a href="https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(info.a) + (GEO ? '&origin=' + GEO.lat + ',' + GEO.lng : '') + '" target="_blank" rel="noopener">' + NAV_ICON + '導航</a>' : '';
       return '<div class="jv-card' + (near ? ' near' : '') + (idx >= MOBILE_LIMIT && !SHOW_ALL ? ' hide-m' : '') + '">' +
-        '<div class="jv-cname"><span class="jv-n">' + esc(c.name) + (near ? '<span class="jv-near">最近</span>' : '') + '</span>' + tel + '</div>' + rows +
+        '<div class="jv-cname"><span class="jv-n">' + esc(c.name) + '</span>' + tel + '</div>' + rows +
         '<div class="jv-meta"><span>' + (c.updatedAt ? '更新 ' + esc(c.updatedAt) : '尚未回報') + '</span><span style="display:flex;gap:10px;align-items:center">' + distHtml + nav + '</span></div></div>';
     }).join('');
 
