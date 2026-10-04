@@ -57,6 +57,8 @@ window.JY_VAX = {
   var POLL = CFG.poll || 15000;
   var LOW = CFG.low || 10;
   var MOBILE_LIMIT = CFG.mobileLimit || 6;
+  // 疫苗名稱後的括弧備註（key 可用完整欄名或關鍵字，如「公費」）
+  var NOTES = CFG.notes || { '公費': '請先來電詢問' };
   var CUR_V = null, LAST = null, GEO = null, SHOW_ALL = false, COUNTY = '';
 
   // 院區座標／地址／電話（與官網「看診進度就近排序」代碼同一份；院區搬遷一起改）
@@ -118,6 +120,7 @@ window.JY_VAX = {
 '#jy-vaccine-board .jv-vac{font-size:13px;min-width:0}' +
 '#jy-vaccine-board .jv-vac .jv-tag{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;margin-right:4px;vertical-align:1px;background:var(--jv-yellow);color:#3f3a00}' +
 '#jy-vaccine-board .jv-vac .jv-tag.pub{background:#D8EBFF;color:#1A4F82}' +
+'#jy-vaccine-board .jv-vac .jv-note{display:block;font-size:11px;color:#8a6500;font-weight:600;line-height:1.2;margin-top:1px}' +
 '#jy-vaccine-board .jv-qty{display:inline-flex;align-items:baseline;gap:2px;font-weight:900;font-size:22px;font-variant-numeric:tabular-nums;white-space:nowrap}' +
 '#jy-vaccine-board .jv-qty small{font-size:11px;font-weight:600;color:var(--jv-mute)}' +
 '#jy-vaccine-board .jv-qty.ok{color:var(--jv-ok)}#jy-vaccine-board .jv-qty.low{color:var(--jv-low)}#jy-vaccine-board .jv-qty.out{color:var(--jv-out)}#jy-vaccine-board .jv-qty.na{color:#9bb;font-size:14px;font-weight:600}' +
@@ -146,7 +149,7 @@ window.JY_VAX = {
   '#jy-vaccine-board .jv-cname .jv-n{flex:1 1 auto;min-width:0;font-size:15px}' +
   '#jy-vaccine-board .jv-tel{flex:0 0 32px;width:32px!important;min-width:32px!important;max-width:32px!important;height:32px;padding:0!important;margin:0;border-radius:50%;justify-content:center;gap:0;font-size:0;line-height:0}' +
   '#jy-vaccine-board .jv-tel span{display:none!important}#jy-vaccine-board .jv-tel svg{width:16px;height:16px}' +
-  '#jy-vaccine-board .jv-row{padding:4px 0;gap:4px}#jy-vaccine-board .jv-vac{font-size:12px}#jy-vaccine-board .jv-vac .jv-tag{margin-right:2px;padding:1px 5px}' +
+  '#jy-vaccine-board .jv-row{padding:4px 0;gap:4px}#jy-vaccine-board .jv-vac{font-size:12px}#jy-vaccine-board .jv-vac .jv-note{font-size:10px}#jy-vaccine-board .jv-vac .jv-tag{margin-right:2px;padding:1px 5px}' +
   '#jy-vaccine-board .jv-qty{font-size:19px}#jy-vaccine-board .jv-pill{display:none}' +
   '#jy-vaccine-board .jv-meta{margin-top:5px;font-size:10px}' +
   '#jy-vaccine-board .jv-card.hide-m{display:none}#jy-vaccine-board .jv-more{display:inline-flex}' +
@@ -217,7 +220,9 @@ window.JY_VAX = {
         var changed = prev[c.name] && String(prev[c.name][i]) !== String(q);
         var qtyHtml = q == null ? '—' : (st === 'txt' ? esc(q) : esc(q) + '<small>劑</small>');
         var pill = st === 'txt' ? '' : '<span class="jv-pill ' + st + '">' + LABEL[st] + '</span>';
-        return '<div class="jv-row"><div class="jv-vac"><span class="jv-tag' + (v.pub ? ' pub' : '') + '">' + v.tag + '</span>' + esc(v.name) + '</div>' +
+        var noteKey = Object.keys(NOTES).filter(function (k) { return (d.vaccines[i] || '').indexOf(k) >= 0; })[0];
+        var note = noteKey ? '<span class="jv-note">（' + esc(NOTES[noteKey]) + '）</span>' : '';
+        return '<div class="jv-row"><div class="jv-vac"><span class="jv-tag' + (v.pub ? ' pub' : '') + '">' + v.tag + '</span>' + esc(v.name) + note + '</div>' +
           '<div style="display:flex;align-items:center;gap:6px"><span class="jv-qty ' + st + (changed ? ' jv-flash' : '') + '">' + qtyHtml + '</span>' + pill + '</div></div>';
       }).join('');
       var tel = info.tel ? '<a class="jv-tel" href="tel:' + esc(info.tel.replace(/[^\d+]/g, '')) + '" aria-label="撥打' + esc(c.name) + '">' + PHONE_ICON + '<span>' + esc(info.tel) + '</span></a>' : '';
